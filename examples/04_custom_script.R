@@ -114,7 +114,7 @@ space <- create_param_space(
 # =============================================================================
 # SCHRITT 3: Zielfunktion definieren
 # =============================================================================
-# Die Zielfunktion ruft das Skript auf und gibt den Score zureck.
+# Die Zielfunktion ruft das Skript auf und gibt den Score zurueck.
 # TIPP: Hier kannst du auch Nebenbedingungen (Constraints) einbauen.
 
 objective <- function(params) {
