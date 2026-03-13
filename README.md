@@ -1,81 +1,496 @@
-# autoresearch
+# autoresearch – Lern-Handbuch
 
-**Autonomes Optimierungs-Framework für R Programme, Skripte und Modelle**
+> Ein R-Paket, mit dem du **alles Mögliche** an R-Programmen, Skripten, Modellen
+> und Simulationen automatisch optimieren kannst.
 
-`autoresearch` ist ein flexibles R-Paket, mit dem beliebige R-Programme, Skripte
-und statistische Modelle automatisch optimiert werden können. Es unterstützt
-Hyperparameter-Tuning, Modellauswahl und benutzerdefinierte Zielfunktionen – mit
-vollständiger Ergebnis-Protokollierung.
+---
 
-## Features
+## Inhaltsverzeichnis
 
-- **Grid Search** und **Random Search** über beliebige Parameter-Räume
-- Optimierung von **linearen Modellen, GLMs, Random Forests, neuronalen Netzen** und jedem anderen R-Modell
-- **Externe Skript-Optimierung** – beliebige `.R`-Skripte parametrisch tunen
-- **Cross-Validation** eingebaut
-- **Zeitbudget** – Suche automatisch begrenzen
-- **Ergebnis-Tracking** mit Speichern, Laden und Visualisierung
-- Saubere, nachvollziehbare **Beispiele** für jeden Anwendungsfall
+1. [Was ist autoresearch?](#1-was-ist-autoresearch)
+2. [Das Grundprinzip in 2 Minuten](#2-das-grundprinzip-in-2-minuten)
+3. [Installation](#3-installation)
+4. [Schritt für Schritt: Dein erstes Optimierungsproblem](#4-schritt-für-schritt-dein-erstes-optimierungsproblem)
+5. [Die drei Parameter-Typen](#5-die-drei-parameter-typen)
+6. [Zwei Suchstrategien: Grid vs. Random](#6-zwei-suchstrategien-grid-vs-random)
+7. [Modelle optimieren mit evaluate_model](#7-modelle-optimieren-mit-evaluate_model)
+8. [Beliebige Skripte optimieren mit evaluate_script](#8-beliebige-skripte-optimieren-mit-evaluate_script)
+9. [Was kann ich alles mit Custom Scripts optimieren?](#9-was-kann-ich-alles-mit-custom-scripts-optimieren)
+10. [Ergebnisse verwalten und visualisieren](#10-ergebnisse-verwalten-und-visualisieren)
+11. [Beispiel-Übersicht](#11-beispiel-übersicht)
+12. [Architektur des Pakets](#12-architektur-des-pakets)
+13. [Tests & Voraussetzungen](#13-tests--voraussetzungen)
 
-## Installation
+---
+
+## 1. Was ist autoresearch?
+
+Stell dir vor, du hast ein R-Skript – zum Beispiel eine Simulation, ein
+Vorhersagemodell, oder eine Datenverarbeitungs-Pipeline – und du willst
+herausfinden, welche Einstellungen das beste Ergebnis liefern.
+
+**Bisher** hast du das wahrscheinlich so gemacht:
+```r
+# Manuell ausprobieren...
+ergebnis1 <- mein_modell(alpha = 0.1, beta = 5)   # RMSE = 3.2
+ergebnis2 <- mein_modell(alpha = 0.5, beta = 10)  # RMSE = 2.8
+ergebnis3 <- mein_modell(alpha = 0.3, beta = 7)   # RMSE = 2.5  ← bisher bestes
+# ... und so weiter, bis die Geduld ausgeht
+```
+
+**Mit autoresearch** sagst du dem Paket:
+- Welche Parameter es gibt (z.B. `alpha` zwischen 0.01 und 1.0)
+- Was „gut" bedeutet (z.B. niedriger RMSE)
+- Wie lange gesucht werden soll
+
+Und es probiert **automatisch hunderte Kombinationen** aus und liefert dir die
+beste.
+
+---
+
+## 2. Das Grundprinzip in 2 Minuten
+
+Jedes Optimierungsproblem in autoresearch hat **drei Teile**:
+
+```
+┌─────────────────────┐
+│  1. PARAMETER-RAUM  │   ← Was kann verändert werden?
+│  (Stellschrauben)   │      z.B. alpha: 0.01–1.0, methode: "lm" oder "glm"
+└────────┬────────────┘
+         │
+         ▼
+┌─────────────────────┐
+│  2. ZIELFUNKTION    │   ← Wie gut ist eine Kombination?
+│  (Score berechnen)  │      Nimmt Parameter, gibt EINE Zahl zurück
+└────────┬────────────┘
+         │
+         ▼
+┌─────────────────────┐
+│  3. SUCHSTRATEGIE   │   ← Wie werden Kombinationen ausprobiert?
+│  (Grid / Random)    │      Grid = alle Punkte; Random = zufällig N Stück
+└─────────────────────┘
+```
+
+**Das war's.** Wenn du diese drei Teile definieren kannst, kann autoresearch
+dein Problem optimieren.
+
+---
+
+## 3. Installation
 
 ```r
-# Aus dem Repository installieren
+# Variante A: Direkt von GitHub
 # install.packages("devtools")
 devtools::install_github("gupa1012/autoresearch")
 ```
 
-Oder lokal:
-
 ```bash
+# Variante B: Lokal klonen und installieren
 git clone https://github.com/gupa1012/autoresearch.git
 cd autoresearch
 R -e 'devtools::install(".")'
 ```
 
-## Schnellstart
+```r
+# Variante C: Ohne Installation – einfach Quellcode laden
+# (funktioniert direkt aus dem Repository-Verzeichnis)
+for (f in list.files("R", full.names = TRUE, pattern = "\\.R$")) source(f)
+```
+
+---
+
+## 4. Schritt für Schritt: Dein erstes Optimierungsproblem
+
+Ziel: Finde die Werte `x` und `y`, die den Ausdruck `(x - 3)² + (y + 1)²`
+minimieren (Antwort: x=3, y=-1).
 
 ```r
-library(autoresearch)
+# Quellcode laden
+for (f in list.files("R", full.names = TRUE, pattern = "\\.R$")) source(f)
 
-# 1. Parameter-Raum definieren
+# --- Schritt 1: Parameter-Raum definieren ---
+# "x soll zwischen -10 und 10 liegen, y auch"
 space <- create_param_space(
-  param_numeric("learning_rate", 0.001, 0.1),
-  param_integer("n_trees", 50, 500),
-  param_categorical("method", c("lm", "glm"))
+  param_numeric("x", -10, 10),
+  param_numeric("y", -10, 10)
 )
 
-# 2. Zielfunktion definieren (Score = niedrig ist besser)
+# --- Schritt 2: Zielfunktion definieren ---
+# Bekommt eine Liste mit x und y, gibt eine Zahl zurück.
+# autoresearch MINIMIERT diesen Wert (niedrig = gut).
 objective <- function(params) {
-  # ... Modell trainieren, evaluieren ...
-  # Gibt einen numerischen Score zurück
-  score
+  (params$x - 3)^2 + (params$y + 1)^2
 }
 
-# 3. Optimierung starten
+# --- Schritt 3: Optimierung starten ---
 result <- optimize_params(
   objective = objective,
   space     = space,
-  method    = "random",  # oder "grid"
-  n_iter    = 100,
-  minimize  = TRUE
+  method    = "random",   # 200 zufällige Kombinationen testen
+  n_iter    = 200,
+  minimize  = TRUE,
+  seed      = 42          # Für Reproduzierbarkeit
 )
 
-# 4. Ergebnisse ansehen
+# --- Schritt 4: Ergebnis ansehen ---
 cat("Bester Score:", result$best_score, "\n")
-cat("Beste Parameter:", "\n")
-str(result$best_params)
+cat("Bestes x:", result$best_params$x, "\n")
+cat("Bestes y:", result$best_params$y, "\n")
+# → x ≈ 3, y ≈ -1, Score ≈ 0
 ```
 
-## Beispiele
+**Merke:** Die Zielfunktion bekommt immer `params` (eine benannte Liste)
+und muss immer **eine einzige Zahl** zurückgeben.
 
-| Beispiel | Datei | Beschreibung |
-|----------|-------|--------------|
-| Lineares Modell | [`examples/01_linear_model.R`](examples/01_linear_model.R) | Feature-Auswahl und Transformation für `lm()` |
-| GLM Optimierung | [`examples/02_glm_optimization.R`](examples/02_glm_optimization.R) | Link-Funktion und Features für logistische Regression |
-| Random Forest | [`examples/03_random_forest.R`](examples/03_random_forest.R) | `ntree`, `mtry`, `nodesize` Tuning |
-| Skript-Optimierung | [`examples/04_custom_script.R`](examples/04_custom_script.R) | Beliebiges R-Skript parametrisch optimieren |
-| Neuronales Netz | [`examples/05_neural_network.R`](examples/05_neural_network.R) | `nnet` Hyperparameter mit Zeitbudget |
+---
+
+## 5. Die drei Parameter-Typen
+
+autoresearch kennt drei Arten von Parametern:
+
+### Kontinuierlich (numeric)
+Für Dezimalzahlen – z.B. Lernraten, Gewichte, Schwellenwerte.
+```r
+param_numeric("learning_rate", 0.001, 0.1)
+# → Samplet Werte wie 0.0234, 0.0891, 0.0512, ...
+```
+
+### Ganzzahlig (integer)
+Für ganze Zahlen – z.B. Anzahl Bäume, Schichten, Iterationen.
+```r
+param_integer("n_trees", 50, 500)
+# → Samplet Werte wie 127, 342, 89, 455, ...
+```
+
+### Kategoriell (categorical)
+Für Auswahlmöglichkeiten – z.B. Algorithmus, Aktivierungsfunktion.
+```r
+param_categorical("methode", c("lm", "glm", "ridge"))
+# → Wählt zufällig "lm", "glm" oder "ridge"
+```
+
+### Kombinieren
+```r
+space <- create_param_space(
+  param_numeric("alpha", 0.01, 1.0),
+  param_integer("max_iter", 100, 1000),
+  param_categorical("solver", c("Newton", "BFGS", "CG"))
+)
+# → Jede Kombination aus alpha × max_iter × solver ist möglich
+```
+
+---
+
+## 6. Zwei Suchstrategien: Grid vs. Random
+
+### Grid Search – Systematisch alle Punkte abtasten
+
+```r
+result <- optimize_params(
+  objective = objective,
+  space     = space,
+  method    = "grid",
+  n_grid    = 10    # 10 Punkte pro numerischer Achse
+)
+```
+
+**Vorteile:** Lückenlos, findet garantiert das Optimum im Raster.
+**Nachteile:** Explodiert bei vielen Parametern (3 Parameter × 10 Stufen = 1.000 Kombinationen, 5 Parameter × 10 = 100.000).
+
+**Wann verwenden?** Bei wenigen Parametern (1–3) und/oder kategoriellen Parametern.
+
+### Random Search – Zufällig Punkte ausprobieren
+
+```r
+result <- optimize_params(
+  objective = objective,
+  space     = space,
+  method    = "random",
+  n_iter    = 200   # 200 zufällige Versuche
+)
+```
+
+**Vorteile:** Skaliert gut mit vielen Parametern, findet oft schnell gute Lösungen.
+**Nachteile:** Kann Glück oder Pech haben.
+
+**Wann verwenden?** Bei vielen Parametern (3+) oder wenn die Evaluierung teuer ist.
+
+### Zeitbudget – Suche automatisch begrenzen
+
+```r
+result <- optimize_params(
+  objective   = objective,
+  space       = space,
+  method      = "random",
+  n_iter      = 10000,     # Viele Iterationen anfordern...
+  time_budget = 60         # ...aber nach 60 Sekunden aufhören
+)
+```
+
+---
+
+## 7. Modelle optimieren mit evaluate_model
+
+Für R-Modelle (`lm`, `glm`, `randomForest`, `nnet`, ...) gibt es eine
+Komfortfunktion, die automatisch **Cross-Validation** macht:
+
+```r
+# Beispiel: Welche Formel ist die beste für ein lineares Modell?
+space <- create_param_space(
+  param_categorical("formel", c(
+    "mpg ~ wt",
+    "mpg ~ wt + hp",
+    "mpg ~ wt + hp + qsec",
+    "mpg ~ ."
+  ))
+)
+
+objective <- function(params) {
+  evaluate_model(
+    data   = mtcars,
+    target = "mpg",
+
+    # Diese Funktion baut das Modell:
+    build_model = function(train_data, target_name) {
+      lm(as.formula(params$formel), data = train_data)
+    },
+
+    # Diese Funktion bewertet das Modell:
+    score_fn = function(model, test_data, target_name) {
+      vorhersagen <- predict(model, test_data)
+      sqrt(mean((test_data[[target_name]] - vorhersagen)^2))  # RMSE
+    },
+
+    n_folds = 5  # 5-fache Kreuzvalidierung
+  )
+}
+
+result <- optimize_params(objective, space, method = "grid")
+```
+
+### Was passiert bei evaluate_model intern?
+
+```
+Daten (z.B. 32 Zeilen mtcars)
+    │
+    ├── Fold 1: Zeilen 1-6 = Test,  Rest = Training  → Score₁
+    ├── Fold 2: Zeilen 7-13 = Test, Rest = Training  → Score₂
+    ├── Fold 3: Zeilen 14-19 = Test, Rest = Training → Score₃
+    ├── Fold 4: Zeilen 20-26 = Test, Rest = Training → Score₄
+    └── Fold 5: Zeilen 27-32 = Test, Rest = Training → Score₅
+                                                         │
+                                              Ergebnis = Mittelwert(Score₁...₅)
+```
+
+---
+
+## 8. Beliebige Skripte optimieren mit evaluate_script
+
+**Das ist die mächtigste Funktion.** Du kannst damit **jedes** R-Skript
+optimieren – es muss nicht einmal ein statistisches Modell sein.
+
+### Wie funktioniert es?
+
+1. Du schreibst ein R-Skript, das Parameter als Variablen erwartet
+2. Am Ende des Skripts weist du das Ergebnis an `.result` zu
+3. `evaluate_script()` injiziert die Parameter und liest `.result` aus
+
+```
+┌───────────────────────────────┐
+│  evaluate_script(             │
+│    "mein_skript.R",           │
+│    params = list(             │
+│      alpha = 0.5,       ──────┼──→  Im Skript existiert Variable `alpha`
+│      beta  = 2.0        ──────┼──→  Im Skript existiert Variable `beta`
+│    ),                         │
+│    time_budget = 30           │     (Timeout nach 30 Sekunden)
+│  )                            │
+│                               │
+│  Rückgabe: Wert von .result ◄─┼──── .result <- alpha^2 + beta
+└───────────────────────────────┘
+```
+
+### Minimalbeispiel
+
+**Skript** (`optimiere_mich.R`):
+```r
+# Diese Variablen werden von autoresearch injiziert:
+# - temperatur (numeric)
+# - druck     (numeric)
+
+# Berechnung
+ertrag <- 100 * exp(-((temperatur - 75)^2) / 500) *
+          exp(-((druck - 2.5)^2) / 2)
+
+# Ergebnis zuweisen (PFLICHT!)
+.result <- -ertrag   # Negativ, weil wir minimieren und hohen Ertrag wollen
+```
+
+**Optimierung:**
+```r
+for (f in list.files("R", full.names = TRUE, pattern = "\\.R$")) source(f)
+
+space <- create_param_space(
+  param_numeric("temperatur", 20, 120),
+  param_numeric("druck", 0.5, 5.0)
+)
+
+result <- optimize_params(
+  objective = function(params) {
+    evaluate_script("optimiere_mich.R", params = params)
+  },
+  space  = space,
+  method = "random",
+  n_iter = 300
+)
+```
+
+---
+
+## 9. Was kann ich alles mit Custom Scripts optimieren?
+
+Die Skript-Optimierung ist extrem flexibel. Hier ein Überblick, **was alles
+möglich ist** – jedes dieser Szenarien funktioniert:
+
+### A) Simulationsparameter
+
+```r
+# Monte-Carlo-Simulation: Finde die besten Parameter für eine Fabrikplanung
+# Parameter: n_maschinen, puffer_groesse, schichtlaenge
+# .result <- mittlere_durchlaufzeit
+```
+
+### B) Datenverarbeitungs-Pipelines
+
+```r
+# Finde die besten Vorverarbeitungsschritte:
+# Parameter: impute_method ("mean"/"median"/"knn"), scale (TRUE/FALSE),
+#            pca_components (2-20), outlier_threshold (1.5-4.0)
+# .result <- vorhersagefehler_nach_pipeline
+```
+
+### C) Algorithmen-Parameter
+
+```r
+# Optimiere einen eigenen Algorithmus:
+# Parameter: step_size, momentum, epsilon, max_iterations
+# .result <- konvergenzmass
+```
+
+### D) Datenanpassung und Kurvenfit
+
+```r
+# Finde die besten Parameter für eine Kurvenanpassung:
+# Parameter: a, b, c (Koeffizienten einer Funktion f(x) = a*exp(b*x) + c)
+# .result <- sum((y_beobachtet - f(x))^2)  ← Summe der Abweichungen
+```
+
+### E) Scheduling und Planung
+
+```r
+# Optimale Schichtplanung:
+# Parameter: schicht1_start, pause_dauer, team_groesse
+# .result <- gesamtkosten
+```
+
+### F) Finanzmodelle
+
+```r
+# Portfolio-Optimierung, Risikobewertung:
+# Parameter: gewicht_aktien, gewicht_anleihen, rebalance_frequenz
+# .result <- -sharpe_ratio
+```
+
+### G) Biologische / Physikalische Modelle
+
+```r
+# Parameter einer Differentialgleichung fitten:
+# Parameter: wachstumsrate, kapazitaet, anfangswert
+# .result <- abweichung_von_messdaten
+```
+
+### H) Machine-Learning-Pipelines
+
+```r
+# Komplette ML-Pipeline als Skript:
+# Parameter: feature_selection_method, n_features, model_type, regularization
+# .result <- cross_validated_error
+```
+
+### Die Regel
+
+> **Wenn du es in ein R-Skript schreiben kannst und am Ende EINE Zahl
+> herauskommt, kann autoresearch es optimieren.**
+
+Detaillierte, lauffähige Beispiele findest du in:
+- [`examples/04_custom_script.R`](examples/04_custom_script.R) – Portfolio-Optimierung
+- [`examples/06_custom_script_advanced.R`](examples/06_custom_script_advanced.R) – Kurvenfit, Simulation, Pipeline
+
+---
+
+## 10. Ergebnisse verwalten und visualisieren
+
+### Ergebnisse protokollieren
+
+```r
+# Automatisch – optimize_params gibt alles zurück:
+result <- optimize_params(objective, space, method = "random", n_iter = 100)
+
+result$best_params  # Beste Parameter
+result$best_score   # Bester Score
+result$results      # Vollständiges Protokoll aller Versuche
+```
+
+### Als Tabelle ansehen
+
+```r
+df <- summarize_results(result$results)
+#   x          y          score      timestamp
+# 1 2.945      -1.123     0.023      2025-...
+# 2 -3.210     5.670      42.130     2025-...
+# ...
+```
+
+### Speichern und Laden
+
+```r
+save_results(result$results, "meine_ergebnisse.tsv")
+
+# Später:
+df <- load_results("meine_ergebnisse.tsv")
+```
+
+### Optimierungsverlauf visualisieren
+
+```r
+plot_optimization(result$results)
+# Zeigt: Punkte = alle Scores, blaue Linie = bester Score bis dahin
+```
+
+### Modell-Metriken extrahieren
+
+```r
+mod <- lm(mpg ~ wt + hp, data = mtcars)
+capture_metrics(mod)
+# $r_squared     = 0.8268
+# $adj_r_squared = 0.8148
+# $sigma         = 2.593
+# $aic           = 156.65
+# $bic           = 162.84
+```
+
+---
+
+## 11. Beispiel-Übersicht
+
+| Nr | Datei | Was wird optimiert? | Suchstrategie |
+|----|-------|----|----|
+| 01 | [`examples/01_linear_model.R`](examples/01_linear_model.R) | Welche Features und Transformationen für `lm()` | Grid Search |
+| 02 | [`examples/02_glm_optimization.R`](examples/02_glm_optimization.R) | Link-Funktion und Features für logistische Regression | Grid Search |
+| 03 | [`examples/03_random_forest.R`](examples/03_random_forest.R) | `ntree`, `mtry`, `nodesize` für Random Forest | Random Search |
+| 04 | [`examples/04_custom_script.R`](examples/04_custom_script.R) | Beliebiges Skript: Portfolio-Allokation | Random Search |
+| 05 | [`examples/05_neural_network.R`](examples/05_neural_network.R) | `size`, `decay`, `maxit` für neuronales Netz mit Zeitbudget | Random Search |
+| 06 | [`examples/06_custom_script_advanced.R`](examples/06_custom_script_advanced.R) | Drei Szenarien: Kurvenfit, Simulation, ML-Pipeline | Random Search |
 
 Beispiel ausführen:
 
@@ -84,75 +499,91 @@ cd autoresearch
 Rscript examples/01_linear_model.R
 ```
 
-## Kernfunktionen
+---
 
-### Parameter-Definition
-
-```r
-param_numeric("lr", 0.001, 0.1)       # Kontinuierlich
-param_integer("epochs", 10, 100)       # Ganzzahlig
-param_categorical("act", c("relu", "tanh"))  # Kategoriell
-```
-
-### Optimierung
-
-```r
-optimize_params(objective, space, method = "random", n_iter = 100)
-optimize_params(objective, space, method = "grid", n_grid = 10)
-```
-
-### Modell-Evaluation mit Cross-Validation
-
-```r
-evaluate_model(
-  data = mtcars, target = "mpg",
-  build_model = function(train, tgt) lm(mpg ~ ., train),
-  score_fn = function(mod, test, tgt) sqrt(mean((test$mpg - predict(mod, test))^2))
-)
-```
-
-### Skript-Optimierung
-
-```r
-# Skript enthält .result <- <berechnung mit injizierten Parametern>
-evaluate_script("mein_skript.R", params = list(alpha = 0.5, beta = 2))
-```
-
-### Ergebnis-Verwaltung
-
-```r
-log <- new_results_log()
-log <- add_result(log, params = list(x = 1), score = 0.5)
-save_results(log, "ergebnisse.tsv")
-plot_optimization(log)
-```
-
-## Architektur
+## 12. Architektur des Pakets
 
 ```
 autoresearch/
-├── R/
-│   ├── optimizer.R    # Kern-Optimierer (Grid Search, Random Search)
-│   ├── evaluate.R     # Modell- und Skript-Evaluation
-│   ├── results.R      # Ergebnis-Tracking und Visualisierung
-│   └── utils.R        # Hilfsfunktionen (Zeitbudget, Metriken)
-├── examples/          # 5 vollständige Beispiele
-├── tests/             # Automatisierte Tests
-├── DESCRIPTION        # Paket-Metadaten
-└── NAMESPACE          # Exportierte Funktionen
+│
+├── R/                          ← Kern-Code (4 Dateien)
+│   ├── optimizer.R             ← Parameterraum + Grid/Random Search
+│   │   ├── param_numeric()        Kontinuierliche Parameter definieren
+│   │   ├── param_integer()        Ganzzahlige Parameter definieren
+│   │   ├── param_categorical()    Kategorielle Parameter definieren
+│   │   ├── create_param_space()   Parameter zu einem Raum kombinieren
+│   │   ├── optimize_params()      ★ Hauptfunktion: Optimierung starten
+│   │   ├── grid_search()          Alle Rasterpunkte durchgehen
+│   │   └── random_search()        Zufällige Punkte ausprobieren
+│   │
+│   ├── evaluate.R              ← Evaluation (Modelle & Skripte)
+│   │   ├── evaluate_model()       Modell mit Cross-Validation bewerten
+│   │   └── evaluate_script()      Beliebiges R-Skript ausführen & Score lesen
+│   │
+│   ├── results.R               ← Ergebnis-Verwaltung
+│   │   ├── new_results_log()      Neues Protokoll erstellen
+│   │   ├── add_result()           Ergebnis hinzufügen
+│   │   ├── best_result()          Bestes Ergebnis finden
+│   │   ├── summarize_results()    Alle Ergebnisse als Tabelle
+│   │   ├── save_results()         In TSV-Datei speichern
+│   │   ├── load_results()         Aus TSV-Datei laden
+│   │   └── plot_optimization()    Verlauf visualisieren
+│   │
+│   └── utils.R                 ← Hilfsfunktionen
+│       ├── with_time_budget()     Ausdruck mit Zeitlimit ausführen
+│       ├── set_seed_safely()      Seed setzen (akzeptiert NULL)
+│       └── capture_metrics()      R²,AIC,BIC aus Modellobjekten extrahieren
+│
+├── examples/                   ← 6 vollständige, lauffähige Beispiele
+├── tests/test_all.R            ← Automatisierte Tests (37 Tests)
+├── DESCRIPTION                 ← Paket-Metadaten
+├── NAMESPACE                   ← Exportierte Funktionen
+└── LICENSE                     ← MIT-Lizenz
 ```
 
-## Voraussetzungen
+### Datenfluss bei einer Optimierung
+
+```
+Parameter-Raum ──→ Suchstrategie ──→ Zielfunktion ──→ Score
+      │                  │                 │              │
+      │            (Random/Grid)     (dein Code!)     (eine Zahl)
+      │                  │                 │              │
+      │                  ▼                 │              ▼
+      │           params = list(           │        results_log
+      │             alpha = 0.3,           │         ├── Versuch 1: score = 4.2
+      │             beta  = 7             │         ├── Versuch 2: score = 2.1
+      │           )                        │         ├── Versuch 3: score = 5.7
+      │                  │                 │         └── ...
+      │                  └────→ Score ←────┘
+      │                                               │
+      └──────────────── Nächster Versuch ◄─────────────┘
+```
+
+---
+
+## 13. Tests & Voraussetzungen
+
+### Voraussetzungen
 
 - **R >= 4.0.0**
-- Empfohlen: `randomForest`, `nnet` (für die Beispiele 3 und 5)
+- Empfohlen: `randomForest`, `nnet` (für Beispiele 3, 5 und 6)
 
-## Tests ausführen
+### Tests ausführen
 
 ```bash
 cd autoresearch
 Rscript tests/test_all.R
 ```
+
+Die Tests prüfen:
+- Parameter-Definitionen und Kombinationen
+- Grid-Aufbau und Random-Sampling
+- Ergebnis-Protokollierung und Speichern/Laden
+- Cross-Validation und Skript-Evaluation
+- Zeitbudgets und Fehlerbehandlung
+- End-to-End-Optimierung mit beiden Suchstrategien
+
+---
 
 ## Lizenz
 
