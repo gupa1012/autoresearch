@@ -1,23 +1,20 @@
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
+# R build artifacts
+*.Rcheck/
+*.tar.gz
+*.Rproj.user
+.Rhistory
+.RData
+.Rproj.user/
+src/*.o
+src/*.so
+src/*.dll
 
-# Virtual environments
-.venv
-worktrees/
+# Results
 results/
-queue/
+results.tsv
 
-# Agent prompt files (generated per-session by launchers)
+# Miscellaneous
+.DS_Store
 CLAUDE.md
 AGENTS.md
-
-# Experimental code/artifacts
 dev/
-
-# Results file
-results.tsv
