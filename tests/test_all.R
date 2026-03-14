@@ -149,6 +149,116 @@ res2 <- optimize_params(obj, sp, method = "grid", n_grid = 10,
 assert("grid search works", !is.na(res2$best_score))
 assert("grid search near optimum", res2$best_score < 5)
 
+# ---- Bayesian Optimization --------------------------------------------------
+cat("\n=== Bayesian Optimization ===\n")
+
+# Einfache quadratische Funktion – globales Minimum bei (3, -1)
+obj_quad <- function(params) (params$x - 3)^2 + (params$y + 1)^2
+sp_quad <- create_param_space(
+  param_numeric("x", -10, 10),
+  param_numeric("y", -10, 10)
+)
+
+res_bayes <- optimize_params(obj_quad, sp_quad, method = "bayesian",
+                             n_iter = 30, n_initial = 6,
+                             minimize = TRUE, seed = 99, verbose = FALSE)
+assert("bayesian returns best_params", is.list(res_bayes$best_params))
+assert("bayesian returns best_score",  is.numeric(res_bayes$best_score))
+assert("bayesian score is finite",     is.finite(res_bayes$best_score))
+assert("bayesian score is positive",   res_bayes$best_score >= 0)
+assert("bayesian result near optimum", res_bayes$best_score < 10)
+
+# Direkte Funktion bayesian_search
+log_b <- bayesian_search(obj_quad, sp_quad, n_iter = 20, n_initial = 5,
+                         minimize = TRUE, verbose = FALSE)
+assert("bayesian_search returns log",   inherits(log_b, "results_log"))
+assert("bayesian_search has entries",   length(log_b$entries) > 0)
+
+# ---- narrow_param_space -----------------------------------------------------
+cat("\n=== narrow_param_space ===\n")
+
+sp_full <- create_param_space(
+  param_numeric("a",  0, 10),
+  param_integer("b",  1, 20),
+  param_categorical("c", c("x", "y", "z"))
+)
+
+# Simuliere Top-Ergebnisse nahe a=3, b=5, c="x" oder "y" (nie "z")
+top_df <- data.frame(a = c(2.8, 3.1, 3.0, 3.2), b = c(5L, 5L, 6L, 5L),
+                     c = c("x", "x", "x", "y"), stringsAsFactors = FALSE)
+
+sp_narrow <- narrow_param_space(sp_full, top_df, shrink_factor = 0.5)
+
+assert("narrow returns param_space",   inherits(sp_narrow, "param_space"))
+assert("narrow has same length",       length(sp_narrow) == length(sp_full))
+
+# Numerisch: neuer Bereich soll enger sein
+a_orig <- sp_full[[1]]
+a_new  <- sp_narrow[[1]]
+assert("numeric lower increased",  a_new$lower >= a_orig$lower)
+assert("numeric upper decreased",  a_new$upper <= a_orig$upper)
+assert("numeric range is smaller", (a_new$upper - a_new$lower) <
+                                   (a_orig$upper - a_orig$lower))
+
+# Integer analog
+b_orig <- sp_full[[2]]
+b_new  <- sp_narrow[[2]]
+assert("integer range is smaller", (b_new$upper - b_new$lower) <
+                                   (b_orig$upper - b_orig$lower))
+
+# Kategoriell: nur noch "x"
+c_new <- sp_narrow[[3]]
+assert("categorical reduced",  length(c_new$choices) < 3)
+assert("categorical kept used", "x" %in% c_new$choices)
+assert("categorical removed unused",  !("z" %in% c_new$choices))
+
+# ---- Research Agent ---------------------------------------------------------
+cat("\n=== Research Agent ===\n")
+
+ackley <- function(params) {
+  x <- params$x; y <- params$y
+  -20 * exp(-0.2 * sqrt(0.5 * (x^2 + y^2))) -
+    exp(0.5 * (cos(2 * pi * x) + cos(2 * pi * y))) + exp(1) + 20
+}
+sp_ackley <- create_param_space(
+  param_numeric("x", -5, 5),
+  param_numeric("y", -5, 5)
+)
+
+agent_res <- research_agent(ackley, sp_ackley,
+                            n_rounds         = 3,
+                            strategies       = c("random", "bayesian"),
+                            n_iter_per_round = 20,
+                            top_fraction     = 0.15,
+                            minimize         = TRUE,
+                            seed             = 7,
+                            verbose          = FALSE)
+
+assert("agent returns best_params",          is.list(agent_res$best_params))
+assert("agent returns best_score",           is.numeric(agent_res$best_score))
+assert("agent best_score is finite",         is.finite(agent_res$best_score))
+assert("agent rounds list correct length",   length(agent_res$rounds) == 3)
+assert("agent strategy_log correct length",  length(agent_res$strategy_log) == 3)
+assert("agent round1 is random",             agent_res$strategy_log[1] == "random")
+assert("agent improvement_history length",   length(agent_res$improvement_history) == 3)
+assert("agent space_history length",         length(agent_res$search_space_history) == 3)
+assert("agent rounds are results_log",
+       all(vapply(agent_res$rounds, function(r) inherits(r, "results_log"), logical(1))))
+assert("agent improvement monotone",
+       all(diff(agent_res$improvement_history) <= 1e-10))   # minimization: never worse
+
+# Stagnation-Pruefung: Agent soll ohne Fehler durchlaufen, auch wenn er stagniert
+agent_stag <- research_agent(ackley, sp_ackley,
+                             n_rounds          = 4,
+                             strategies        = "random",
+                             n_iter_per_round  = 5,
+                             stagnation_rounds = 1,
+                             minimize          = TRUE,
+                             seed              = 1,
+                             verbose           = FALSE)
+assert("agent stagnation does not crash", is.list(agent_stag))
+assert("agent stagnation has best_score", is.finite(agent_stag$best_score))
+
 # ---- Summary ----------------------------------------------------------------
 cat("\n", paste(rep("=", 50), collapse = ""), "\n")
 cat(sprintf("Tests passed: %d / %d\n", tests_passed, tests_passed + tests_failed))

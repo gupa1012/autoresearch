@@ -1,7 +1,8 @@
 # autoresearch – Lern-Handbuch
 
 > Ein R-Paket, mit dem du **alles Mögliche** an R-Programmen, Skripten, Modellen
-> und Simulationen automatisch optimieren kannst.
+> und Simulationen automatisch optimieren kannst – von einfachem Grid Search bis
+> zu intelligenter Bayesian Optimization und einem adaptiven Research Agent.
 
 ---
 
@@ -12,14 +13,16 @@
 3. [Installation](#3-installation)
 4. [Schritt für Schritt: Dein erstes Optimierungsproblem](#4-schritt-für-schritt-dein-erstes-optimierungsproblem)
 5. [Die drei Parameter-Typen](#5-die-drei-parameter-typen)
-6. [Zwei Suchstrategien: Grid vs. Random](#6-zwei-suchstrategien-grid-vs-random)
-7. [Modelle optimieren mit evaluate_model](#7-modelle-optimieren-mit-evaluate_model)
-8. [Beliebige Skripte optimieren mit evaluate_script](#8-beliebige-skripte-optimieren-mit-evaluate_script)
-9. [Was kann ich alles mit Custom Scripts optimieren?](#9-was-kann-ich-alles-mit-custom-scripts-optimieren)
-10. [Ergebnisse verwalten und visualisieren](#10-ergebnisse-verwalten-und-visualisieren)
-11. [Beispiel-Übersicht](#11-beispiel-übersicht)
-12. [Architektur des Pakets](#12-architektur-des-pakets)
-13. [Tests & Voraussetzungen](#13-tests--voraussetzungen)
+6. [Drei Suchstrategien: Grid, Random und Bayesian](#6-drei-suchstrategien-grid-random-und-bayesian)
+7. [Intelligente Suche: Bayesian Optimization](#7-intelligente-suche-bayesian-optimization)
+8. [Der Research Agent](#8-der-research-agent)
+9. [Modelle optimieren mit evaluate_model](#9-modelle-optimieren-mit-evaluate_model)
+10. [Beliebige Skripte optimieren mit evaluate_script](#10-beliebige-skripte-optimieren-mit-evaluate_script)
+11. [Was kann ich alles mit Custom Scripts optimieren?](#11-was-kann-ich-alles-mit-custom-scripts-optimieren)
+12. [Ergebnisse verwalten und visualisieren](#12-ergebnisse-verwalten-und-visualisieren)
+13. [Beispiel-Übersicht](#13-beispiel-übersicht)
+14. [Architektur des Pakets](#14-architektur-des-pakets)
+15. [Tests & Voraussetzungen](#15-tests--voraussetzungen)
 
 ---
 
@@ -43,8 +46,16 @@ ergebnis3 <- mein_modell(alpha = 0.3, beta = 7)   # RMSE = 2.5  ← bisher beste
 - Was „gut" bedeutet (z.B. niedriger RMSE)
 - Wie lange gesucht werden soll
 
-Und es probiert **automatisch hunderte Kombinationen** aus und liefert dir die
-beste.
+Und es probiert **automatisch hunderte Kombinationen** aus – und das nicht nur
+blind, sondern mit **intelligenten Strategien**:
+
+- **Grid Search** – Systematisches Abtasten aller Rasterpunkte
+- **Random Search** – Zufällige Stichproben (skaliert gut mit vielen Parametern)
+- **Bayesian Optimization** – Lernt aus bisherigen Ergebnissen und konzentriert
+  sich auf vielversprechende Regionen (mit Gaussian-Process-Surrogate und
+  Expected Improvement)
+- **Research Agent** – Führt mehrere Runden durch, engt den Suchraum adaptiv
+  ein und wechselt automatisch zwischen Exploration und Exploitation
 
 ---
 
@@ -65,10 +76,11 @@ Jedes Optimierungsproblem in autoresearch hat **drei Teile**:
 └────────┬────────────┘
          │
          ▼
-┌─────────────────────┐
-│  3. SUCHSTRATEGIE   │   ← Wie werden Kombinationen ausprobiert?
-│  (Grid / Random)    │      Grid = alle Punkte; Random = zufällig N Stück
-└─────────────────────┘
+┌──────────────────────────────────┐
+│  3. SUCHSTRATEGIE                │   ← Wie werden Kombinationen ausprobiert?
+│  (Grid / Random / Bayesian /     │      Grid = alle Punkte; Random = zufällig;
+│   Research Agent)                │      Bayesian = lernend; Agent = adaptiv
+└──────────────────────────────────┘
 ```
 
 **Das war's.** Wenn du diese drei Teile definieren kannst, kann autoresearch
@@ -181,7 +193,7 @@ space <- create_param_space(
 
 ---
 
-## 6. Zwei Suchstrategien: Grid vs. Random
+## 6. Drei Suchstrategien: Grid, Random und Bayesian
 
 ### Grid Search – Systematisch alle Punkte abtasten
 
@@ -215,6 +227,24 @@ result <- optimize_params(
 
 **Wann verwenden?** Bei vielen Parametern (3+) oder wenn die Evaluierung teuer ist.
 
+### Bayesian Optimization – Intelligent suchen
+
+```r
+result <- optimize_params(
+  objective = objective,
+  space     = space,
+  method    = "bayesian",
+  n_iter    = 50,       # Gesamtzahl Evaluierungen
+  n_initial = 8,        # Davon: initiale Zufallspunkte
+  kappa     = 2.0       # Exploration-Exploitation-Balance
+)
+```
+
+**Vorteile:** Lernt aus bisherigen Ergebnissen, konzentriert sich auf vielversprechende Bereiche.
+**Nachteile:** Höherer Overhead pro Iteration durch Surrogate-Modell.
+
+**Wann verwenden?** Wenn die Evaluierung teuer ist und du wenige Iterationen hast.
+
 ### Zeitbudget – Suche automatisch begrenzen
 
 ```r
@@ -229,7 +259,138 @@ result <- optimize_params(
 
 ---
 
-## 7. Modelle optimieren mit evaluate_model
+## 7. Intelligente Suche: Bayesian Optimization
+
+### Was ist Bayesian Optimization?
+
+Während Grid Search und Random Search jeden Punkt unabhängig voneinander
+evaluieren, **lernt** Bayesian Optimization aus den bisherigen Ergebnissen und
+entscheidet intelligent, wo als nächstes gesucht werden soll.
+
+```
+Iteration 1:  Zufälliger Punkt    → Score 4.2
+Iteration 2:  Zufälliger Punkt    → Score 7.1
+Iteration 3:  Zufälliger Punkt    → Score 2.3
+                                        │
+                        GP-Surrogate lernt:  "Region A sieht gut aus"
+                                        │
+                                        ▼
+Iteration 4:  EI wählt nächsten   → Score 1.1  ✓ Besser!
+Iteration 5:  EI verfeinert       → Score 0.3  ✓ Noch besser!
+```
+
+### Wie funktioniert es intern?
+
+autoresearch verwendet ein **Gaussian Process (GP) Surrogate-Modell** mit
+RBF-Kernel (Radial Basis Function):
+
+1. **Initiale Punkte**: `n_initial` zufällige Evaluierungen (wie Random Search)
+2. **Surrogate-Fit**: Ein GP wird auf alle bisherigen Beobachtungen gefittet
+3. **Acquisition Function**: Expected Improvement (EI) bestimmt den nächsten
+   vielversprechendsten Punkt: `EI(x) = E[max(0, f_best - f(x))]`
+4. **Evaluierung**: Der ausgewählte Punkt wird evaluiert
+5. **Wiederholung** ab Schritt 2 bis `n_iter` erreicht
+
+```r
+# Bayesian Optimization direkt
+result <- optimize_params(
+  objective = function(params) (params$x - 3)^2,
+  space     = create_param_space(param_numeric("x", -10, 10)),
+  method    = "bayesian",
+  n_iter    = 30,
+  n_initial = 5,      # Erstmal 5 Zufallspunkte
+  kappa     = 2.0,    # Hoch = mehr Exploration; Niedrig = mehr Exploitation
+  seed      = 42
+)
+```
+
+### Wann ist Bayesian Optimization besonders nützlich?
+
+| Situation | Empfehlung |
+|-----------|-----------|
+| Evaluierung dauert Sekunden bis Minuten | ✅ Bayesian |
+| Viele Parameter (5+) | ⚠️ Eher Random Search |
+| Budget von nur 20–100 Evaluierungen | ✅ Bayesian |
+| Schnelle Evaluierung (<0.1s), 1000+ iter | ⚠️ Eher Random/Grid |
+| Mehrere lokale Minima bekannt | ✅ Bayesian mit hohem kappa |
+
+---
+
+## 8. Der Research Agent
+
+### Warum ein Research Agent?
+
+Manchmal reicht eine einzige Suchrunde nicht. Der **Research Agent** führt
+mehrere Runden durch und **engt den Suchraum adaptiv ein**:
+
+```
+Runde 1 (Random Search):
+  Suchraum: x ∈ [-10, 10]  ───────────────────────────────────────
+  Ergebnis: Vielversprechende Region bei x ≈ 3
+
+Runde 2 (Bayesian Optimization):
+  Suchraum: x ∈ [1.5, 4.5]  ─────────────────
+  Ergebnis: Noch besser bei x ≈ 3.1
+
+Runde 3 (Bayesian Optimization):
+  Suchraum: x ∈ [2.5, 3.7]  ──────────
+  Ergebnis: x ≈ 3.02  ✓ Fast perfekt!
+```
+
+Bei **Stagnation** (kein Fortschritt über mehrere Runden) erweitert der Agent
+den Suchraum wieder auf das Original – um lokale Minima zu entkommen.
+
+### Verwendung
+
+```r
+agent_result <- research_agent(
+  objective        = meine_funktion,
+  space            = mein_parameterraum,
+  n_rounds         = 5,                          # Anzahl Runden
+  strategies       = c("random", "bayesian"),    # Abwechselnd verwenden
+  n_iter_per_round = 50,                         # Iterationen pro Runde
+  top_fraction     = 0.10,                       # Top 10% für Zoom-In
+  shrink_factor    = 0.5,                        # Suchraum halbieren
+  stagnation_rounds = 2,                         # Reset nach 2 schlechten Runden
+  minimize         = TRUE,
+  seed             = 42,
+  verbose          = TRUE
+)
+
+# Ergebnisse abrufen
+agent_result$best_params          # Beste gefundene Parameter
+agent_result$best_score           # Bester Score
+agent_result$strategy_log         # Welche Strategie in welcher Runde?
+agent_result$improvement_history  # Score-Entwicklung über Runden
+agent_result$search_space_history # Wie hat sich der Suchraum verändert?
+```
+
+### Parameterraum-Einengung mit narrow_param_space
+
+Du kannst den Zoom-In-Mechanismus auch manuell verwenden:
+
+```r
+# Bestes 10% der Ergebnisse extrahieren
+df <- summarize_results(result$results)
+top10 <- df[order(df$score)[1:ceiling(nrow(df) * 0.1)], ]
+
+# Suchraum einengen
+narrow_space <- narrow_param_space(
+  space         = original_space,
+  best_results  = top10,
+  shrink_factor = 0.5   # Neuer Bereich = 50% des alten
+)
+```
+
+**Für numeric/integer**: Neuer Bereich = Mittelwert der Top-Ergebnisse ±
+`shrink_factor × (alter Bereich / 2)`.
+
+**Für categorical**: Nur die Kategorien, die in den Top-Ergebnissen vorkamen,
+werden behalten (mindestens 2).
+
+---
+
+## 9. Modelle optimieren mit evaluate_model
 
 Für R-Modelle (`lm`, `glm`, `randomForest`, `nnet`, ...) gibt es eine
 Komfortfunktion, die automatisch **Cross-Validation** macht:
@@ -284,7 +445,7 @@ Daten (z.B. 32 Zeilen mtcars)
 
 ---
 
-## 8. Beliebige Skripte optimieren mit evaluate_script
+## 10. Beliebige Skripte optimieren mit evaluate_script
 
 **Das ist die mächtigste Funktion.** Du kannst damit **jedes** R-Skript
 optimieren – es muss nicht einmal ein statistisches Modell sein.
@@ -347,7 +508,7 @@ result <- optimize_params(
 
 ---
 
-## 9. Was kann ich alles mit Custom Scripts optimieren?
+## 11. Was kann ich alles mit Custom Scripts optimieren?
 
 Die Skript-Optimierung ist extrem flexibel. Hier ein Überblick, **was alles
 möglich ist** – jedes dieser Szenarien funktioniert:
@@ -428,7 +589,7 @@ Detaillierte, lauffähige Beispiele findest du in:
 
 ---
 
-## 10. Ergebnisse verwalten und visualisieren
+## 12. Ergebnisse verwalten und visualisieren
 
 ### Ergebnisse protokollieren
 
@@ -481,7 +642,7 @@ capture_metrics(mod)
 
 ---
 
-## 11. Beispiel-Übersicht
+## 13. Beispiel-Übersicht
 
 | Nr | Datei | Was wird optimiert? | Suchstrategie |
 |----|-------|----|----|
@@ -491,6 +652,7 @@ capture_metrics(mod)
 | 04 | [`examples/04_custom_script.R`](examples/04_custom_script.R) | Beliebiges Skript: Portfolio-Allokation | Random Search |
 | 05 | [`examples/05_neural_network.R`](examples/05_neural_network.R) | `size`, `decay`, `maxit` für neuronales Netz mit Zeitbudget | Random Search |
 | 06 | [`examples/06_custom_script_advanced.R`](examples/06_custom_script_advanced.R) | Drei Szenarien: Kurvenfit, Simulation, ML-Pipeline | Random Search |
+| 07 | [`examples/07_research_agent.R`](examples/07_research_agent.R) | Ackley-Funktion (mehrere lokale Minima) – Agent vs. Random/Bayesian | Research Agent |
 
 Beispiel ausführen:
 
@@ -501,20 +663,25 @@ Rscript examples/01_linear_model.R
 
 ---
 
-## 12. Architektur des Pakets
+## 14. Architektur des Pakets
 
 ```
 autoresearch/
 │
-├── R/                          ← Kern-Code (4 Dateien)
-│   ├── optimizer.R             ← Parameterraum + Grid/Random Search
+├── R/                          ← Kern-Code (5 Dateien)
+│   ├── optimizer.R             ← Parameterraum + Grid/Random/Bayesian Search
 │   │   ├── param_numeric()        Kontinuierliche Parameter definieren
 │   │   ├── param_integer()        Ganzzahlige Parameter definieren
 │   │   ├── param_categorical()    Kategorielle Parameter definieren
 │   │   ├── create_param_space()   Parameter zu einem Raum kombinieren
 │   │   ├── optimize_params()      ★ Hauptfunktion: Optimierung starten
 │   │   ├── grid_search()          Alle Rasterpunkte durchgehen
-│   │   └── random_search()        Zufällige Punkte ausprobieren
+│   │   ├── random_search()        Zufällige Punkte ausprobieren
+│   │   ├── bayesian_search()      GP-Surrogate + Expected Improvement
+│   │   └── narrow_param_space()   Suchraum auf beste Region einengen
+│   │
+│   ├── agent.R                 ← Research Agent
+│   │   └── research_agent()       Adaptiver multi-Runden-Agent
 │   │
 │   ├── evaluate.R              ← Evaluation (Modelle & Skripte)
 │   │   ├── evaluate_model()       Modell mit Cross-Validation bewerten
@@ -534,8 +701,8 @@ autoresearch/
 │       ├── set_seed_safely()      Seed setzen (akzeptiert NULL)
 │       └── capture_metrics()      R²,AIC,BIC aus Modellobjekten extrahieren
 │
-├── examples/                   ← 6 vollständige, lauffähige Beispiele
-├── tests/test_all.R            ← Automatisierte Tests (37 Tests)
+├── examples/                   ← 7 vollständige, lauffähige Beispiele
+├── tests/test_all.R            ← Automatisierte Tests (65 Tests)
 ├── DESCRIPTION                 ← Paket-Metadaten
 ├── NAMESPACE                   ← Exportierte Funktionen
 └── LICENSE                     ← MIT-Lizenz
@@ -546,7 +713,7 @@ autoresearch/
 ```
 Parameter-Raum ──→ Suchstrategie ──→ Zielfunktion ──→ Score
       │                  │                 │              │
-      │            (Random/Grid)     (dein Code!)     (eine Zahl)
+      │      (Grid/Random/Bayesian/Agent) (dein Code!)  (eine Zahl)
       │                  │                 │              │
       │                  ▼                 │              ▼
       │           params = list(           │        results_log
@@ -561,7 +728,7 @@ Parameter-Raum ──→ Suchstrategie ──→ Zielfunktion ──→ Score
 
 ---
 
-## 13. Tests & Voraussetzungen
+## 15. Tests & Voraussetzungen
 
 ### Voraussetzungen
 
@@ -581,7 +748,9 @@ Die Tests prüfen:
 - Ergebnis-Protokollierung und Speichern/Laden
 - Cross-Validation und Skript-Evaluation
 - Zeitbudgets und Fehlerbehandlung
-- End-to-End-Optimierung mit beiden Suchstrategien
+- End-to-End-Optimierung mit allen drei Suchstrategien (Grid, Random, Bayesian)
+- `narrow_param_space()`: Parameterraum-Einengung
+- `research_agent()`: Adaptiver multi-Runden-Agent mit Stagnationserkennung
 
 ---
 

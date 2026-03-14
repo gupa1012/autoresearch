@@ -1,12 +1,15 @@
 Package: autoresearch
 Title: Autonomous Optimization Framework for R Programs, Scripts and Models
-Version: 0.1.0
+Version: 0.2.0
 Authors@R: person("AutoResearch", "Team", email = "autoresearch@example.com",
                    role = c("aut", "cre"))
 Description: A flexible optimization framework that can automatically tune and
     improve any R program, script, or statistical model. Supports hyperparameter
-    optimization, model selection, and custom objective functions. Tracks all
-    experiments with reproducible results.
+    optimization via Grid Search, Random Search, and Bayesian Optimization
+    (Gaussian Process surrogate with Expected Improvement). An intelligent
+    Research Agent adaptively narrows the search space over multiple rounds,
+    combining exploration and exploitation. Tracks all experiments with
+    reproducible results.
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
