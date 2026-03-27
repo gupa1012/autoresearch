@@ -125,3 +125,6 @@ A: In Agent Mode kann Copilot iterativ arbeiten. Bei langen Sessions kann es sei
 
 **Q: Was ist der Vorteil gegenüber dem Original-AutoResearch?**
 A: Das Original braucht eine GPU und `uv` als Package-Manager. Die Skills hier funktionieren mit jedem Projekt, jedem Tech-Stack, und brauchen nur VS Code + Copilot. Das Prinzip ist dasselbe — nur verallgemeinert.
+
+**Q: Warum sind die Skills auf Deutsch?**
+A: Die Skills sind auf Deutsch verfasst, da sie für deutschsprachige Nutzer erstellt wurden. Die Befehle und Code-Beispiele sind universell (Englisch). Copilot versteht die Anweisungen in jeder Sprache — du kannst die Skills bei Bedarf übersetzen oder Copilot bitten, sie in einer anderen Sprache zu interpretieren.
